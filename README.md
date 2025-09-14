@@ -321,17 +321,6 @@ Processes QA jobs asynchronously using Redis/Asynq:
 - Realistic developer activity simulation
 - Terminal command execution
 
-### Data Flow
-
-```
-Client (IDE) --> API Gateway --> Event Ingestion Service --> Message Queue
-                                                                    |
-                                                                    v
-Background Processing <-- Object Storage <-- Event Storage Service
-         |
-         v
-   QA Testing Service (Docker) --> Results Storage --> Analytics API
-```
 
 ### Event Types (`internal/schemas/types.go`)
 
