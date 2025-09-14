@@ -1,0 +1,129 @@
+version: "3.9"
+services:
+  api:
+    build: .
+    command: ["/app/api"]
+    env_file: .env
+    volumes:
+      - ./:/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      dind:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  api-health:
+    image: curlimages/curl:8.9.1
+    command: sh -c "while true; do sleep 60; done"
+    healthcheck:
+      test: ["CMD", "curl", "-fsSL", "http://api:8000/healthz"]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+    depends_on:
+      api:
+        condition: service_started
+
+  worker:
+    build: .
+    command: ["/app/worker"]
+    env_file: .env
+    volumes:
+      - ./:/src
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      dind:
+        condition: service_healthy
+
+  redis:
+    image: redis:7-alpine
+
+  postgres:
+    image: postgres:16-alpine
+    env_file: .env
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h localhost"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    ports: ["5433:5432"]
+    volumes: ["pgdata:/var/lib/postgresql/data"]
+
+  minio:
+    image: quay.io/minio/minio:RELEASE.2025-09-07T16-13-09Z-cpuv1
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+    healthcheck:
+      test: ["CMD-SHELL", "mc alias set local http://localhost:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} >/dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    ports: ["9000:9000","9001:9001"]
+    volumes: ["minio:/data"]
+
+  minio-setup:
+    image: quay.io/minio/mc
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 ${MINIO_ACCESS_KEY} ${MINIO_SECRET_KEY} &&
+      mc mb -p local/${MINIO_BUCKET} || true &&
+      mc anonymous set download local/${MINIO_BUCKET} || true &&
+      echo ready;
+      "
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY}
+      MINIO_BUCKET: ${MINIO_BUCKET}
+
+  dind:
+    image: docker:27-dind
+    privileged: true
+    environment:
+      DOCKER_TLS_CERTDIR: ""
+    ports:
+      - "2375:2375"
+    volumes:
+      - dind-storage:/var/lib/docker
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:2375/_ping"]
+      interval: 3s
+      timeout: 2s
+      retries: 30
+
+  smoke:
+    build: .
+    command: ["/app/smoke"]
+    environment:
+      API_BASE_URL: http://api:8000
+    volumes:
+      - ./:/src
+    depends_on:
+      api-health:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_started
+      dind:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  minio:
+  dind-storage:
