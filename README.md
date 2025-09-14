@@ -4,6 +4,7 @@ This is an end-to-end application that receives PR telemetry traces and conducts
 
 ## Setup
 ```bash
+cp .env.example .env
 docker-compose up -d
 docker-compose logs -f smoke
 ```
